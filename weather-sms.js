@@ -325,31 +325,29 @@ Have a great week! 🗽`
 
 
 // ─── EMAIL TO TEXT SENDER ───────────────────────────────────
-// Gmail SMTP → AT&T gateway (number@txt.att.net) → arrives as SMS
+// Gmail SMTP -> AT&T gateway (number@txt.att.net) -> arrives as SMS
 
 function sendEmail(toAddress, body) {
   return new Promise((resolve, reject) => {
     const tls = require("tls");
+    const CRLF = "
+";
 
     const rawEmail = [
-      `From: ${CONFIG.GMAIL_USER}`,
-      `To: ${toAddress}`,
-      `Subject: NYC Weather`,
-      `MIME-Version: 1.0`,
-      `Content-Type: text/plain; charset=utf-8`,
-      ``,
+      "From: " + CONFIG.GMAIL_USER,
+      "To: " + toAddress,
+      "Subject: NYC Weather",
+      "MIME-Version: 1.0",
+      "Content-Type: text/plain; charset=utf-8",
+      "",
       body,
-    ].join("
-");
+    ].join(CRLF);
 
     const socket = tls.connect(465, "smtp.gmail.com", { rejectUnauthorized: true }, () => {
       let step = 0;
       let buffer = "";
 
-      const send = (cmd) => {
-        socket.write(cmd + "
-");
-      };
+      const send = (cmd) => socket.write(cmd + CRLF);
 
       socket.on("data", (data) => {
         buffer += data.toString();
@@ -362,19 +360,19 @@ function sendEmail(toAddress, body) {
         else if (step === 1 && line.includes("250 "))  { step++; send("AUTH LOGIN"); }
         else if (step === 2 && line.startsWith("334")) { step++; send(Buffer.from(CONFIG.GMAIL_USER).toString("base64")); }
         else if (step === 3 && line.startsWith("334")) { step++; send(Buffer.from(CONFIG.GMAIL_APP_PASS).toString("base64")); }
-        else if (step === 4 && line.startsWith("235")) { step++; send(`MAIL FROM:<${CONFIG.GMAIL_USER}>`); }
-        else if (step === 5 && line.startsWith("250")) { step++; send(`RCPT TO:<${toAddress}>`); }
+        else if (step === 4 && line.startsWith("235")) { step++; send("MAIL FROM:<" + CONFIG.GMAIL_USER + ">"); }
+        else if (step === 5 && line.startsWith("250")) { step++; send("RCPT TO:<" + toAddress + ">"); }
         else if (step === 6 && line.startsWith("250")) { step++; send("DATA"); }
-        else if (step === 7 && line.startsWith("354")) { step++; send(rawEmail + "
-."); }
+        else if (step === 7 && line.startsWith("354")) { step++; send(rawEmail + CRLF + "."); }
         else if (step === 8 && line.startsWith("250")) { send("QUIT"); socket.destroy(); resolve(); }
-        else if (line.startsWith("5"))                 { reject(new Error(`SMTP error: ${line}`)); socket.destroy(); }
+        else if (line.startsWith("5"))                 { reject(new Error("SMTP error: " + line)); socket.destroy(); }
       });
 
       socket.on("error", reject);
     });
   });
 }
+
 
 
 
