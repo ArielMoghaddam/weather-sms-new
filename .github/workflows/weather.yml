@@ -2,8 +2,8 @@ name: Daily Weather Text
 
 on:
   schedule:
-    - cron: '0 1 * * *'  # 1 AM UTC = 9 PM Eastern
-  workflow_dispatch:       # lets you trigger manually to test
+    - cron: '0 1 * * *'
+  workflow_dispatch:
 
 jobs:
   send-weather:
@@ -13,6 +13,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
+      - run: npm install nodemailer
       - run: node weather-sms.js
         env:
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
