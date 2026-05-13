@@ -1,0 +1,20 @@
+name: Daily Weather Text
+
+on:
+  schedule:
+    - cron: '0 1 * * *'  # 1 AM UTC = 9 PM Eastern
+  workflow_dispatch:       # lets you trigger manually to test
+
+jobs:
+  send-weather:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+      - run: node weather-sms.js
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASS: ${{ secrets.GMAIL_APP_PASS }}
+          TO_NUMBER: ${{ secrets.TO_NUMBER }}
