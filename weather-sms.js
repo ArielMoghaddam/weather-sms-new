@@ -1,11 +1,11 @@
-// weather-sms.js — NYC Daily Weather Text
-// Mon-Sat: tomorrow's forecast + 8AM/Noon/5PM snapshots
-// Sunday: 7-day weekly outlook
-// Sends via Gmail SMTP (port 587) to AT&T SMS gateway
-
 const https = require("https");
-const net = require("net");
-const tls = require("tls");
+const { execSync } = require("child_process");
+
+// Install nodemailer if not present
+try { require.resolve("nodemailer"); } 
+catch(e) { execSync("npm install nodemailer", { stdio: "inherit" }); }
+
+const nodemailer = require("nodemailer");
 
 const CONFIG = {
   GMAIL_USER:     process.env.GMAIL_USER     || "you@gmail.com",
@@ -141,8 +141,8 @@ function weatherScore(code) {
 }
 
 function buildDailyMessage(data) {
-  var d      = data.daily;
-  var idx    = 1;
+  var d       = data.daily;
+  var idx     = 1;
   var dateStr  = d.time[idx];
   var date     = new Date(dateStr + "T12:00:00");
   var dayName  = date.toLocaleDateString("en-US", { weekday: "long" });
@@ -207,76 +207,6 @@ function buildWeeklyMessage(data) {
   return "NYC Week Ahead - 7-Day Outlook\n\n" + lines.join("\n") + callouts + "\n\nHave a great week!";
 }
 
-function sendEmail(toAddress, body) {
-  return new Promise(function(resolve, reject) {
-    var done = false;
-    function finish(err) {
-      if (done) return;
-      done = true;
-      if (err) reject(err); else resolve();
-    }
-
-    var socket = net.createConnection(587, "smtp.gmail.com");
-    var step = 0;
-    var buffer = "";
-    var upgraded = false;
-    var tlsSocket = null;
-
-    function send(cmd, sock) {
-      var s = sock || (upgraded ? tlsSocket : socket);
-      s.write(cmd + "\r\n");
-    }
-
-    function handleLine(line, sock) {
-      var code = line.substring(0, 3);
-      if (code[0] === "5") { finish(new Error("SMTP error: " + line)); return; }
-      if (step === 0 && code === "220") { step++; send("EHLO localhost", sock); }
-      else if (step === 1 && line.indexOf("250 ") !== -1) { step++; send("STARTTLS", sock); }
-      else if (step === 2 && code === "220") {
-        step++;
-        tlsSocket = tls.connect({ socket: socket, servername: "smtp.gmail.com" }, function() {
-          upgraded = true;
-          send("EHLO localhost", tlsSocket);
-          tlsSocket.on("data", function(d) { processData(d.toString(), tlsSocket); });
-          tlsSocket.on("error", finish);
-        });
-      }
-      else if (step === 3 && line.indexOf("250 ") !== -1) { step++; send("AUTH LOGIN", tlsSocket); }
-      else if (step === 4 && code === "334") { step++; send(Buffer.from(CONFIG.GMAIL_USER).toString("base64"), tlsSocket); }
-      else if (step === 5 && code === "334") { step++; send(Buffer.from(CONFIG.GMAIL_APP_PASS).toString("base64"), tlsSocket); }
-      else if (step === 6 && code === "235") { step++; send("MAIL FROM:<" + CONFIG.GMAIL_USER + ">", tlsSocket); }
-      else if (step === 7 && code === "250") { step++; send("RCPT TO:<" + toAddress + ">", tlsSocket); }
-      else if (step === 8 && code === "250") { step++; send("DATA", tlsSocket); }
-      else if (step === 9 && code === "354") {
-        step++;
-        var msg = "From: " + CONFIG.GMAIL_USER + "\r\n" +
-                  "To: " + toAddress + "\r\n" +
-                  "Subject: NYC Weather\r\n" +
-                  "MIME-Version: 1.0\r\n" +
-                  "Content-Type: text/plain; charset=utf-8\r\n" +
-                  "\r\n" + body + "\r\n.";
-        send(msg, tlsSocket);
-      }
-      else if (step === 10 && code === "250") { step++; send("QUIT", tlsSocket); tlsSocket.destroy(); finish(null); }
-    }
-
-    function processData(data, sock) {
-      buffer += data;
-      var lineEnd;
-      while ((lineEnd = buffer.indexOf("\n")) !== -1) {
-        var line = buffer.substring(0, lineEnd).trim();
-        buffer = buffer.substring(lineEnd + 1);
-        if (line.length > 0 && line[3] !== "-") handleLine(line, sock);
-      }
-    }
-
-    socket.on("data", function(d) { if (!upgraded) processData(d.toString(), socket); });
-    socket.on("error", finish);
-    socket.on("timeout", function() { finish(new Error("SMTP timeout")); });
-    socket.setTimeout(15000);
-  });
-}
-
 async function main() {
   console.log("Fetching weather for NYC 10065...");
   try {
@@ -297,11 +227,24 @@ async function main() {
       return;
     }
 
+    var transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: CONFIG.GMAIL_USER,
+        pass: CONFIG.GMAIL_APP_PASS,
+      },
+    });
+
     for (var k = 0; k < allNumbers.length; k++) {
-      var number  = allNumbers[k];
-      var toAddr  = number.indexOf("@") !== -1 ? number : number.replace(/\D/g, "") + "@txt.att.net";
+      var number = allNumbers[k];
+      var toAddr = number.indexOf("@") !== -1 ? number : number.replace(/\D/g, "") + "@txt.att.net";
       console.log("Sending to " + toAddr + "...");
-      await sendEmail(toAddr, message);
+      await transporter.sendMail({
+        from: CONFIG.GMAIL_USER,
+        to:   toAddr,
+        subject: "NYC Weather",
+        text: message,
+      });
       console.log("Sent!");
     }
   } catch(err) {
